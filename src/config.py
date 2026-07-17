@@ -6,6 +6,7 @@ paths derive from a single data root, so the data tree can be relocated by chang
 one value.
 """
 
+from datetime import date
 from pathlib import Path
 
 from pydantic import Field
@@ -44,6 +45,10 @@ class Settings(BaseSettings):
         "(personal research project, contact via github issues)"
     )
     pdf_fetch_delay_seconds: float = 1.0
+
+    # pjm switched to the cluster cycle process on this date. projects from it onward have no
+    # individual study PDF at these URLs, so the fetch selection only considers earlier ones.
+    pdf_study_cutoff: date = date(2020, 10, 1)
 
     # shared by the PDF ingester and the retrieval tool.
     chunk_size: int = 1000

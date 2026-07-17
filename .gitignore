@@ -33,6 +33,5 @@ data/vectors/*
 !data/vectors/.gitkeep
 
 # planning docs and the current README stay local, they are not part of the shipped repo.
-# to commit your own README later, remove the /README.md line or use git add -f.
 /README.md
 /docs/

@@ -38,17 +38,21 @@ FEASIBILITY_STUDY_URL = (
 # the pdf file signature, used to reject html error pages that answer with a 200.
 PDF_MAGIC = b"%PDF"
 
-# fetch tuning. retries cover transient connection drops, not missing files.
-REQUEST_TIMEOUT_SECONDS = 20.0
+# fetch tuning. retries cover transient connection drops, not missing files. the timeout is
+# generous because pjm's file server is slow and some studies run to several MB.
+REQUEST_TIMEOUT_SECONDS = 60.0
 MAX_FETCH_ATTEMPTS = 3
 RETRY_WAIT_SECONDS = 2
 
-# most recent active and withdrawn projects first. that ordering biases toward the recent
-# id clusters where the pjm url pattern actually resolves, which raises the hit rate.
+# individual study PDFs exist only for the pre cluster era. the selection takes the most recent
+# projects before the cutoff, ties broken by queue_id so the same sample comes back each run.
 CANDIDATE_IDS_SQL = (
     "SELECT queue_id FROM projects "
     "WHERE status IN ('active', 'withdrawn') "
-    "ORDER BY request_date DESC NULLS LAST"
+    "AND request_date IS NOT NULL "
+    "AND request_date < DATE '{cutoff}' "
+    "ORDER BY request_date DESC, queue_id "
+    "LIMIT {limit}"
 )
 
 
@@ -64,8 +68,8 @@ def build_study_urls(queue_id: str) -> tuple[str, str]:
 
 
 def select_candidate_queue_ids(limit: int) -> list[str]:
-    """Return up to limit panel queue ids, most recent active and withdrawn projects first."""
-    sql = f"{CANDIDATE_IDS_SQL} LIMIT {int(limit)}"
+    """Return up to limit study era queue ids, most recent active and withdrawn projects first."""
+    sql = CANDIDATE_IDS_SQL.format(cutoff=settings.pdf_study_cutoff.isoformat(), limit=int(limit))
     return [row["queue_id"] for row in query_projects(sql)]
 
 
