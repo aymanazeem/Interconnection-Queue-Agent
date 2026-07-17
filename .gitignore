@@ -1,0 +1,38 @@
+# byte compiled and packaging artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# test and tooling caches
+.pytest_cache/
+.ruff_cache/
+
+# virtual environments
+.venv/
+venv/
+
+# local secrets, the real .env is created by the user and never committed
+.env
+
+# macOS
+.DS_Store
+
+# downloaded and generated data, the folder placeholders stay committed
+data/raw/*
+!data/raw/queue/
+!data/raw/pdfs/
+data/raw/queue/*
+!data/raw/queue/.gitkeep
+data/raw/pdfs/*
+!data/raw/pdfs/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/vectors/*
+!data/vectors/.gitkeep
+
+# planning docs and the current README stay local, they are not part of the shipped repo.
+# to commit your own README later, remove the /README.md line or use git add -f.
+/README.md
+/docs/

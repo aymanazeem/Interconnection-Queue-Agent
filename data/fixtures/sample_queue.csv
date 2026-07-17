@@ -1,0 +1,16 @@
+queue_id,project_name,capacity_mw,fuel_type,status,request_date,in_service_date,county,state,poi
+ac2115,Gray Solar,150,Solar,Active,2021-03-15,2024-12-01,Frederick,VA,Doubs 230kV
+z002,Windy Ridge,200,Wind,Withdrawn,2019-06-01,2022-01-01,Somerset,PA,Seward 500kV
+z003,Harbor Storage,50,Battery,Active,2022-01-10,2025-06-01,Kent,DE,Milford 138kV
+z004,Photon Farm,120,Photovoltaic,Operational,2017-05-20,2020-03-15,Fauquier,VA,Remington 230kV
+z005,Dual Site,300,Solar+Battery,Active,2023-02-01,2026-01-01,Loudoun,VA,Brambleton 230kV
+z006,Peaker Plant,400,Natural Gas,Withdrawn,2015-08-01,,Cambria,PA,Conemaugh 500kV
+z007,River Hydro,25,Hydro,Suspended,2016-11-11,2019-07-01,York,PA,Safe Harbor 230kV
+z008,Old Coal Unit,500,Coal,Operational,2001-01-01,2004-06-01,Indiana,PA,Keystone 500kV
+z009,Mystery Project,,Unknown,Deactivated,TBD,unknown,,,
+z010,Sunny Fields,90,PV,Active,2020-09-09,2023-09-09,Berks,PA,Hosensack 138kV
+z011,Grid BESS,75,BESS,Active,2022-07-07,2025-07-07,New Castle,DE,Cedar Creek 138kV
+z012,Offshore Breeze,800,Offshore Wind,Active,2021-12-01,2028-01-01,Atlantic,NJ,Larrabee 230kV
+z013,No Cap Solar,,Solar,Withdrawn,2018-04-01,2021-04-01,Wicomico,MD,Piney Grove 138kV
+z014,In Service Gas,"1,250",Gas,In Service,2010-02-02,2013-02-02,Hancock,WV,Pleasants 500kV
+z015,Bad Date Wind,60,Wind,Active,not a date,2024-05-05,Grant,WV,Mount Storm 500kV
