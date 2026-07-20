@@ -176,6 +176,30 @@ def test_dry_run_extract_all_reports_counts_and_never_constructs_a_real_client(
     assert summary["input_tokens"] > 0
 
 
+def test_extract_all_writes_the_panel_back_through_the_run_path_with_a_mocked_llm(
+    store_with_chunks, monkeypatch
+) -> None:
+    # exercises the full paid loop offline, retrieve then prompt then chain then write back.
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(settings, "openai_api_key", "fake-key-for-test")
+
+    fixed = StudyExtract(studied_mw=100.0, total_network_upgrade_cost_usd=2_000_000.0)
+    chain = MagicMock()
+    chain.invoke.return_value = fixed
+    chat = MagicMock()
+    chat.with_structured_output.return_value = chain
+    monkeypatch.setattr("src.extract.ChatOpenAI", lambda **kwargs: chat)
+    monkeypatch.setattr(
+        "src.extract.OpenAIEmbeddings", lambda **kwargs: DeterministicFakeEmbedding(size=16)
+    )
+
+    summary = extract_all()
+    assert summary["projects"] == 1
+
+    rows = query_projects("SELECT cost_per_kw FROM projects WHERE queue_id = 'ac2115'")
+    assert rows[0]["cost_per_kw"] == pytest.approx(20.0)
+
+
 def test_rebuild_reprocesses_a_project_that_already_has_a_stored_extract(
     store_with_chunks, monkeypatch
 ) -> None:
