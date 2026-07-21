@@ -20,7 +20,7 @@ Lawrence Berkeley National Laboratory reads those PDFs by hand to pull out the c
 
 The system has two halves. The first half builds the data. The second half answers questions.
 
-Building the data runs in four steps. First, ingest_queue reads the queue data and writes one clean table to DuckDB, one row per project. Then fetch_pdfs downloads the PJM study report PDF for each project that has one. Then ingest_pdfs splits every PDF into chunks and embeds them into a Chroma vector store. Finally extract sends the most relevant chunks of each study to a language model, which pulls out the cost figures. Those figures become a cost per kW and are written back onto the project row in DuckDB.
+Building the data runs in four steps. First, ingest_queue reads the queue data and writes one clean table to DuckDB, one row per project. Then fetch_pdfs reads the project list from the panel and downloads the PJM study report PDF for each project that has one. Then ingest_pdfs splits every PDF into chunks and embeds them into a Chroma vector store. Finally extract sends the most relevant chunks of each study to a language model, which pulls out the cost figures. Those figures become a cost per kW and are written back onto the project row in DuckDB.
 
 Answering a question uses an agent with two tools. query_queue runs read only SQL against the DuckDB panel, so the agent can find projects and their numbers. search_studies pulls the most relevant passages from the study reports, so the agent can explain why a cost is high and what upgrades drive it. The agent decides which tools to call, reads the results, and writes the answer.
 
@@ -37,6 +37,7 @@ flowchart TB
     AG -->|query_queue| DB
     AG -->|search_studies| CH
     AG --> ANS(["grounded answer"])
+    DB -.->|which studies to fetch| FP
 ```
 
 ## Project layout
