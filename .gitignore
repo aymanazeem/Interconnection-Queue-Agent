@@ -13,7 +13,7 @@ dist/
 .venv/
 venv/
 
-# local secrets, the real .env is created by the user and never committed
+# local secrets
 .env
 
 # macOS
@@ -32,6 +32,5 @@ data/processed/*
 data/vectors/*
 !data/vectors/.gitkeep
 
-# planning docs and the current README stay local, they are not part of the shipped repo.
-/README.md
+# planning docs stay local, they are not part of the shipped repo.
 /docs/
