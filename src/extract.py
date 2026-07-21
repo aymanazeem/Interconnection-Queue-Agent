@@ -19,7 +19,7 @@ from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import BaseModel, Field
 
-from src.config import settings
+from src.config import settings, token_cost
 from src.ingest_pdfs import existing_queue_ids, open_store
 from src.ingest_queue import LBNL_HEADER_ROW, LBNL_SHEET, query_projects
 
@@ -44,11 +44,13 @@ in the excerpts below. Leave a field blank if the excerpts do not state it. Do n
 or infer a number that is not written in the text. Copy every dollar and megawatt figure \
 exactly as written, digit for digit.
 
-{context}"""
+Read the cost summary carefully. From it copy three figures when they are present. Copy the total \
+costs line into total_interconnection_cost_usd. Copy the physical interconnection cost or the \
+attachment facilities cost into physical_interconnection_cost_usd. If the summary states a single \
+network upgrade total on its own line, copy that into total_network_upgrade_cost_usd, otherwise \
+leave that field blank. Copy each figure exactly as written and do not add or subtract them.
 
-# gpt-4.1-nano list price, per openai's pricing page, input and output priced differently.
-INPUT_PRICE_PER_MILLION_TOKENS = 0.10
-OUTPUT_PRICE_PER_MILLION_TOKENS = 0.40
+{context}"""
 
 # a small structured record, used only to size the dry run cost estimate.
 ESTIMATED_OUTPUT_TOKENS = 120
@@ -94,7 +96,22 @@ class StudyExtract(BaseModel):
         ),
     )
     total_network_upgrade_cost_usd: float | None = Field(
-        default=None, description="the total dollar cost of the required network upgrades."
+        default=None,
+        description=(
+            "a single stated total for the required network upgrades, for example a total system "
+            "network upgrade costs line. leave blank when the cost summary has no such single line."
+        ),
+    )
+    total_interconnection_cost_usd: float | None = Field(
+        default=None,
+        description="the total costs line from the cost summary, every interconnection cost combined.",
+    )
+    physical_interconnection_cost_usd: float | None = Field(
+        default=None,
+        description=(
+            "the physical interconnection or attachment facilities cost, the customer's own direct "
+            "connection facilities. this is not a network upgrade."
+        ),
     )
     network_upgrade_share: float | None = Field(
         default=None,
@@ -105,13 +122,36 @@ class StudyExtract(BaseModel):
     )
 
 
-def compute_cost_per_kw(extract: StudyExtract) -> float | None:
-    """Divide network upgrade cost by studied capacity in kw, or None if either is missing or zero."""
-    cost = extract.total_network_upgrade_cost_usd
-    studied_mw = extract.studied_mw
-    if cost is None or studied_mw is None or studied_mw == 0:
+def network_upgrade_total(extract: StudyExtract) -> float | None:
+    """The network upgrade cost, a single stated total when the study gives one, else derived.
+
+    Some PJM cost summaries print one network upgrade total, others itemize the upgrade across a
+    direct connection line and cascade allocation lines with no network total row. In a PJM cost
+    summary the total costs are the physical interconnection cost plus the network upgrades, so the
+    upgrade is recovered as total minus physical. Doing the subtraction in code avoids trusting the
+    model to add or subtract large numbers, which it does unreliably.
+    """
+    if extract.total_network_upgrade_cost_usd is not None:
+        return extract.total_network_upgrade_cost_usd
+    if (
+        extract.total_interconnection_cost_usd is not None
+        and extract.physical_interconnection_cost_usd is not None
+    ):
+        return extract.total_interconnection_cost_usd - extract.physical_interconnection_cost_usd
+    return None
+
+
+def compute_cost_per_kw(extract: StudyExtract, capacity_mw: float | None = None) -> float | None:
+    """Divide network upgrade cost by capacity in kw, or None when a value is missing or zero.
+
+    Prefers the megawatts the study states. Falls back to the panel capacity when the study
+    omits it, so a captured cost is not thrown away for lack of a denominator.
+    """
+    cost = network_upgrade_total(extract)
+    megawatts = extract.studied_mw or capacity_mw
+    if cost is None or megawatts is None or megawatts == 0:
         return None
-    return cost / (studied_mw * 1000)
+    return cost / (megawatts * 1000)
 
 
 def build_prompt(queue_id: str, chunks: list[Document]) -> str:
@@ -179,7 +219,7 @@ def already_extracted_queue_ids() -> set[str]:
     return {row["queue_id"] for row in rows}
 
 
-def write_extract(extract: StudyExtract) -> None:
+def write_extract(extract: StudyExtract) -> float | None:
     """Store the full extraction record and update the panel's cost_per_kw for this project.
 
     query_projects only allows select statements, so this is the one place that opens its
@@ -187,10 +227,17 @@ def write_extract(extract: StudyExtract) -> None:
     """
     if extract.queue_id is None:
         raise ValueError("cannot write an extract with no queue_id")
-    cost_per_kw = compute_cost_per_kw(extract)
     connection = duckdb.connect(str(settings.queue_db_path))
     try:
         connection.execute(CREATE_STUDY_EXTRACTS_TABLE)
+        # studies often omit the studied mw, so fall back to the panel capacity for the ratio.
+        panel_row = connection.execute(
+            "SELECT capacity_mw FROM projects WHERE queue_id = ?", [extract.queue_id]
+        ).fetchone()
+        cost_per_kw = compute_cost_per_kw(extract, panel_row[0] if panel_row else None)
+        # store the consolidated network upgrade figure, so the stored total matches cost_per_kw
+        # when the study itemized the upgrade rather than giving one total.
+        network_total = network_upgrade_total(extract)
         connection.execute("DELETE FROM study_extracts WHERE queue_id = ?", [extract.queue_id])
         connection.execute(
             "INSERT INTO study_extracts VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -199,7 +246,7 @@ def write_extract(extract: StudyExtract) -> None:
                 extract.studied_mw,
                 extract.poi,
                 extract.commercial_probability,
-                extract.total_network_upgrade_cost_usd,
+                network_total,
                 extract.network_upgrade_share,
                 extract.notes,
             ],
@@ -210,6 +257,7 @@ def write_extract(extract: StudyExtract) -> None:
         )
     finally:
         connection.close()
+    return cost_per_kw
 
 
 def _extract_encoding() -> tiktoken.Encoding:
@@ -222,10 +270,7 @@ def _extract_encoding() -> tiktoken.Encoding:
 
 def _estimate_cost(input_tokens: int, output_tokens: int) -> float:
     """Return the dollar cost for the given token counts at the extract model's list price."""
-    return (
-        input_tokens * INPUT_PRICE_PER_MILLION_TOKENS
-        + output_tokens * OUTPUT_PRICE_PER_MILLION_TOKENS
-    ) / 1_000_000
+    return token_cost(settings.extract_model, input_tokens, output_tokens)
 
 
 def extract_all(limit: int | None = None, rebuild: bool = False) -> dict[str, float]:
@@ -286,10 +331,10 @@ def _run_extraction(store: Chroma, pending: list[str]) -> dict[str, float]:
         chunks = retrieve_chunks(store, cost_vector, capacity_vector, queue_id, settings.retrieval_k)
         prompt = build_prompt(queue_id, chunks)
         extract = extract_for_project(chain, queue_id, prompt)
-        write_extract(extract)
+        cost_per_kw = write_extract(extract)
         input_tokens += len(encoding.encode(prompt))
         output_tokens += len(encoding.encode(extract.model_dump_json()))
-        print(f"{queue_id}: extracted, cost_per_kw {compute_cost_per_kw(extract)}")
+        print(f"{queue_id}: extracted, cost_per_kw {cost_per_kw}")
 
     cost = _estimate_cost(input_tokens, output_tokens)
     print(

@@ -15,6 +15,27 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # repo root sits one level above this file.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+# openai list prices in dollars per million tokens, keyed by model so a model swap picks up the
+# right price with no change in the calling code. the embedding model bills input only.
+MODEL_PRICES: dict[str, dict[str, float]] = {
+    "gpt-4.1": {"input": 2.00, "output": 8.00},
+    "gpt-4.1-mini": {"input": 0.40, "output": 1.60},
+    "gpt-4.1-nano": {"input": 0.10, "output": 0.40},
+    "text-embedding-3-small": {"input": 0.02, "output": 0.00},
+}
+
+
+def token_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Dollar cost for the given token counts at a model's list price.
+
+    Raises for a model with no listed price rather than guessing, so an unpriced model is caught
+    at the point of use instead of silently reporting a wrong cost.
+    """
+    price = MODEL_PRICES.get(model)
+    if price is None:
+        raise KeyError(f"no list price for model {model!r}, add it to MODEL_PRICES in config")
+    return (input_tokens * price["input"] + output_tokens * price["output"]) / 1_000_000
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -27,7 +48,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
 
     # the env names carry an OPENAI_ prefix, the public attributes stay short.
-    chat_model: str = Field(default="gpt-4.1-mini", validation_alias="OPENAI_CHAT_MODEL")
+    chat_model: str = Field(default="gpt-4.1", validation_alias="OPENAI_CHAT_MODEL")
     extract_model: str = Field(default="gpt-4.1-nano", validation_alias="OPENAI_EXTRACT_MODEL")
     embed_model: str = Field(default="text-embedding-3-small", validation_alias="OPENAI_EMBED_MODEL")
 
@@ -50,10 +71,13 @@ class Settings(BaseSettings):
     # individual study PDF at these URLs, so the fetch selection only considers earlier ones.
     pdf_study_cutoff: date = date(2020, 10, 1)
 
-    # shared by the PDF ingester and the retrieval tool.
+    # chunking for the PDF ingester.
     chunk_size: int = 1000
     chunk_overlap: int = 150
+    # extraction pulls a focused set of cost chunks, retrieval_k. the agent's search tool answers
+    # open ended questions, so it reads wider to catch cost summary lines, search_k.
     retrieval_k: int = 5
+    search_k: int = 8
 
     # the single root every path below derives from.
     data_dir: Path = REPO_ROOT / "data"

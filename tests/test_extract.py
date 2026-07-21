@@ -18,6 +18,7 @@ from src.extract import (
     extract_for_project,
     find_lbnl_workbook,
     load_lbnl_reference,
+    network_upgrade_total,
     preview_chunks,
     retrieve_chunks,
     run_validation,
@@ -80,6 +81,46 @@ def test_study_extract_rejects_a_malformed_record() -> None:
 def test_compute_cost_per_kw_divides_cost_by_kw() -> None:
     extract = StudyExtract(total_network_upgrade_cost_usd=1_500_000.0, studied_mw=150.0)
     assert compute_cost_per_kw(extract) == pytest.approx(10.0)
+
+
+def test_network_upgrade_total_prefers_a_single_stated_total() -> None:
+    # a stated network total wins, so the total and physical lines are not consulted.
+    extract = StudyExtract(
+        total_network_upgrade_cost_usd=299_405_000.0,
+        total_interconnection_cost_usd=307_257_000.0,
+        physical_interconnection_cost_usd=7_852_000.0,
+    )
+    assert network_upgrade_total(extract) == 299_405_000.0
+
+
+def test_network_upgrade_total_derives_from_total_minus_physical() -> None:
+    # AC2-093 shape, no single network line, so the upgrade is total costs minus the physical cost.
+    extract = StudyExtract(
+        total_interconnection_cost_usd=280_825_093.0,
+        physical_interconnection_cost_usd=2_300_000.0,
+    )
+    assert network_upgrade_total(extract) == pytest.approx(278_525_093.0)
+
+
+def test_network_upgrade_total_is_none_when_no_upgrade_figure_is_present() -> None:
+    assert network_upgrade_total(StudyExtract(studied_mw=100.0)) is None
+
+
+def test_network_upgrade_total_is_none_with_a_total_but_no_physical_cost() -> None:
+    # the total costs alone cannot separate the network upgrade from the physical cost.
+    assert network_upgrade_total(StudyExtract(total_interconnection_cost_usd=280_825_093.0)) is None
+
+
+def test_compute_cost_per_kw_uses_the_derived_network_total() -> None:
+    # the derived case divides total costs minus physical cost by capacity.
+    extract = StudyExtract(
+        total_interconnection_cost_usd=280_825_093.0,
+        physical_interconnection_cost_usd=2_300_000.0,
+        studied_mw=675.0,
+    )
+    assert compute_cost_per_kw(extract) == pytest.approx(
+        (280_825_093.0 - 2_300_000.0) / (675.0 * 1000)
+    )
 
 
 def test_compute_cost_per_kw_is_none_when_cost_is_missing() -> None:
@@ -235,3 +276,23 @@ def test_run_validation_prints_a_clear_message_when_no_workbook_is_present(
     settings.queue_raw_dir.mkdir(parents=True, exist_ok=True)
     run_validation()
     assert "skipping validation" in capsys.readouterr().out
+
+
+def test_compute_cost_per_kw_falls_back_to_panel_capacity_when_the_study_omits_mw() -> None:
+    extract = StudyExtract(total_network_upgrade_cost_usd=473_529_878.0)
+    assert compute_cost_per_kw(extract, capacity_mw=1210.0) == pytest.approx(391.35, abs=0.1)
+
+
+def test_compute_cost_per_kw_prefers_the_studied_mw_over_the_panel_capacity() -> None:
+    extract = StudyExtract(total_network_upgrade_cost_usd=1_000_000.0, studied_mw=100.0)
+    # studied mw wins, so the panel figure passed alongside it is ignored.
+    assert compute_cost_per_kw(extract, capacity_mw=500.0) == pytest.approx(10.0)
+
+
+def test_write_extract_falls_back_to_panel_capacity_for_cost_per_kw(panel) -> None:
+    capacity = query_projects("SELECT capacity_mw FROM projects WHERE queue_id = 'ac2115'")[0][
+        "capacity_mw"
+    ]
+    write_extract(StudyExtract(queue_id="ac2115", total_network_upgrade_cost_usd=3_000_000.0))
+    rows = query_projects("SELECT cost_per_kw FROM projects WHERE queue_id = 'ac2115'")
+    assert rows[0]["cost_per_kw"] == pytest.approx(3_000_000.0 / (capacity * 1000))

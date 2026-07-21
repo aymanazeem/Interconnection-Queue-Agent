@@ -17,12 +17,9 @@ from langchain_core.vectorstores import VectorStoreRetriever
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from src.config import settings
+from src.config import settings, token_cost
 
 COLLECTION_NAME = "pjm_studies"
-
-# text-embedding-3-small list price, per openai's pricing page.
-EMBED_PRICE_PER_MILLION_TOKENS = 0.02
 
 # used only if the configured embed model is not in tiktoken's built in table.
 FALLBACK_ENCODING = "cl100k_base"
@@ -67,8 +64,7 @@ def count_tokens(text: str) -> int:
 def estimate_embedding_cost(chunks: list[Document]) -> tuple[int, float]:
     """Return the total token count and dollar cost estimate for embedding these chunks."""
     tokens = sum(count_tokens(chunk.page_content) for chunk in chunks)
-    cost = tokens / 1_000_000 * EMBED_PRICE_PER_MILLION_TOKENS
-    return tokens, cost
+    return tokens, token_cost(settings.embed_model, tokens, 0)
 
 
 def open_store(embeddings: Embeddings | None) -> Chroma:
@@ -86,11 +82,24 @@ def existing_queue_ids(store: Chroma) -> set[str]:
     return {metadata["queue_id"] for metadata in records["metadatas"]}
 
 
+# the querying store is built once per process and reused. rebuilding the native chroma client on
+# every tool call is wasteful, and creating a second client for the same path drives chroma's
+# release and teardown path, which is unstable on some platforms. one client avoids both.
+_querying_store: Chroma | None = None
+
+
+def get_querying_store() -> Chroma:
+    """Return the process wide Chroma store for reads, building it on first use."""
+    global _querying_store
+    if _querying_store is None:
+        embeddings = OpenAIEmbeddings(model=settings.embed_model, api_key=settings.openai_api_key)
+        _querying_store = open_store(embeddings)
+    return _querying_store
+
+
 def get_retriever(k: int | None = None) -> VectorStoreRetriever:
     """Return a retriever over the persisted Chroma store, top k from config if k is None."""
-    embeddings = OpenAIEmbeddings(model=settings.embed_model, api_key=settings.openai_api_key)
-    store = open_store(embeddings)
-    return store.as_retriever(search_kwargs={"k": k or settings.retrieval_k})
+    return get_querying_store().as_retriever(search_kwargs={"k": k or settings.retrieval_k})
 
 
 def embed_new_pdfs(rebuild: bool = False, use_pypdf: bool = False) -> dict[str, float]:
