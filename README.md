@@ -24,7 +24,7 @@ Building the data runs in four steps. First, ingest_queue reads the queue data a
 
 Answering a question uses an agent with two tools. query_queue runs read only SQL against the DuckDB panel, so the agent can find projects and their numbers. search_studies pulls the most relevant passages from the study reports, so the agent can explain why a cost is high and what upgrades drive it. The agent decides which tools to call, reads the results, and writes the answer.
 
-The search_studies side is retrieval augmented generation, RAG for short. The query is embedded, the closest passages are pulled from the vector store, and the model writes its answer from them and cites them. The design leans on RAG only where it earns its place, on the narrative half, where the useful facts are scattered through long reports. The numbers never go through retrieval. They come straight from the panel with exact SQL, so a total is a real total, not a figure the model happened to read. Using RAG for the prose and exact queries for the numbers is the core design choice.
+The search_studies side is retrieval augmented generation (RAG). The query is embedded, the closest passages are pulled from the vector store, and the model writes its answer from them and cites them. The design leans on RAG only where it earns its place, on the narrative half, where the useful facts are scattered through long reports. The numbers never go through retrieval. They come straight from the panel with exact SQL, so a total is a real total, not a figure the model happened to read. Using RAG for the prose and exact queries for the numbers is the core design choice.
 
 Here is the whole flow.
 
@@ -122,7 +122,9 @@ python -m src.cli chat
 
 ## Example
 
-Ask which projects have the highest network upgrade cost per kW and why. The agent queries the panel to rank them, then reads the study reports to explain the drivers. For AC2-093 it reports a cost of about 412 dollars per kW, points to hundreds of millions of dollars of transmission line rebuilds as the cause, and notes that the project has already withdrawn. It never says a project will withdraw for certain. It frames the cost as a risk factor and is clear about where each number came from.
+A real run of the ask command. The agent ranks the costed projects from the panel, then reads the study report to explain what drives the most expensive one, and it is clear about which numbers come from the panel and which come from the report.
+
+![A terminal run of the ask command, ranking projects by network upgrade cost per kW and explaining the top one](assets/example.png)
 
 ## Cost
 
